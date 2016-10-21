@@ -890,6 +890,11 @@ static void do_dump_file(struct uftrace_dump_ops *ops, struct opts *opts,
 			if (sess) {
 				symtabs = &sess->symtabs;
 				sym = find_symtabs(symtabs, frs->addr);
+
+				if (sym == NULL)
+					sym = session_find_dlsym(sess,
+								 frs->time,
+								 frs->addr);
 			}
 
 			name = symbol_getname(sym, frs->addr);
@@ -964,6 +969,10 @@ static void do_dump_replay(struct uftrace_dump_ops *ops, struct opts *opts,
 		if (sess || is_kernel_address(frs->addr)) {
 			symtabs = &sess->symtabs;
 			sym = find_symtabs(symtabs, frs->addr);
+
+			if (sym == NULL)
+				sym = session_find_dlsym(sess, frs->time,
+							 frs->addr);
 		}
 
 		if (prev_time > frs->time)

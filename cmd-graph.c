@@ -184,6 +184,9 @@ static int print_backtrace(struct uftrace_graph *graph)
 
 		for (k = 0; k < bt->len; k++) {
 			sym = find_symtabs(&graph->sess->symtabs, bt->addr[k]);
+			if (sym == NULL)
+				sym = session_find_dlsym(graph->sess,
+							 bt->time, bt->addr[k]);
 			if (sym)
 				symname = xstrdup(sym->name);
 			else
