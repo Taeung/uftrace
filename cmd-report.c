@@ -141,6 +141,8 @@ static void build_function_tree(struct ftrace_file_handle *handle,
 			continue;
 
 		sym = find_symtabs(&sess->symtabs, rstack->addr);
+		if (sym == NULL)
+			sym = session_find_dlsym(sess, rstack->time, rstack->addr);
 
 		fstack = &task->func_stack[task->stack_count];
 

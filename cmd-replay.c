@@ -45,6 +45,8 @@ static void print_backtrace(struct ftrace_task_handle *task)
 		else
 			sym = NULL;
 
+		if (sym == NULL && sess)
+			sym = session_find_dlsym(sess, fstack->total_time, fstack->addr);
 		name = symbol_getname(sym, fstack->addr);
 		pr_out("  backtrace [%5d] |", task->tid);
 		pr_gray(" /* [%2d] %s */\n", i, name);
@@ -69,6 +71,8 @@ static int print_flat_rstack(struct ftrace_file_handle *handle,
 
 	symtabs = &sess->symtabs;
 	sym = find_symtabs(symtabs, rstack->addr);
+	if (sym == NULL)
+		sym = session_find_dlsym(sess, rstack->time, rstack->addr);
 	name = symbol_getname(sym, rstack->addr);
 	fstack = &task->func_stack[rstack->depth];
 
@@ -307,6 +311,8 @@ static int print_graph_rstack(struct ftrace_file_handle *handle,
 
 	symtabs = &sess->symtabs;
 	sym = find_symtabs(symtabs, rstack->addr);
+	if (sym == NULL && sess)
+		sym = session_find_dlsym(sess, rstack->time, rstack->addr);
 	symname = symbol_getname(sym, rstack->addr);
 
 	if (rstack->type == FTRACE_ENTRY && symname[strlen(symname) - 1] != ')')
@@ -530,6 +536,8 @@ static void print_remaining_stack(struct opts *opts,
 			} else
 				sym = NULL;
 
+			if (sym == NULL && sess)
+				sym = session_find_dlsym(sess, time, ip);
 			symname = symbol_getname(sym, ip);
 
 			pr_out("[%d] %s\n", task->stack_count, symname);
