@@ -20,6 +20,8 @@
 #include <sys/stat.h>
 #include <sys/uio.h>
 #include <gelf.h>
+#include <dlfcn.h>
+#include <link.h>
 
 /* This should be defined before #include "utils.h" */
 #define PR_FMT     "mcount"
@@ -137,6 +139,40 @@ static void send_session_msg(struct mcount_thread_data *mtdp, const char *sess_i
 		return;
 
 	memcpy(sess.sid, sess_id, sizeof(sess.sid));
+
+	if (writev(pfd, iov, 3) != len)
+		pr_err("write tid info failed");
+}
+
+static void send_dlopen_msg(struct mcount_thread_data *mtdp, const char *sess_id,
+			    uint64_t timestamp,  uint64_t base_addr,
+			    const char *libname)
+{
+	struct ftrace_msg_dlopen dlop = {
+		.task = {
+			.time = timestamp,
+			.pid = getpid(),
+			.tid = gettid(mtdp),
+		},
+		.base_addr = base_addr,
+		.namelen = strlen(libname),
+	};
+	struct ftrace_msg msg = {
+		.magic = FTRACE_MSG_MAGIC,
+		.type = FTRACE_MSG_DLOPEN,
+		.len = sizeof(dlop) + dlop.namelen,
+	};
+	struct iovec iov[3] = {
+		{ .iov_base = &msg, .iov_len = sizeof(msg), },
+		{ .iov_base = &dlop, .iov_len = sizeof(dlop), },
+		{ .iov_base = (void *)libname, .iov_len = dlop.namelen, },
+	};
+	int len = sizeof(msg) + msg.len;
+
+	if (pfd < 0)
+		return;
+
+	memcpy(dlop.sid, sess_id, sizeof(dlop.sid));
 
 	if (writev(pfd, iov, 3) != len)
 		pr_err("write tid info failed");
@@ -672,6 +708,69 @@ static void build_debug_domain(char *dbg_domain_str)
 }
 
 /*
+ * hooking functions
+ */
+static void * (*real_dlopen)(const char *filename, int flags);
+
+struct dlopen_base_data {
+	const char *libname;
+	unsigned long base_addr;
+};
+
+static const char *simple_basename(const char *pathname)
+{
+	const char *p = strrchr(pathname, '/');
+
+	return p ? p + 1 : pathname;
+}
+
+static int dlopen_base_callback(struct dl_phdr_info *info,
+				size_t size, void *arg)
+{
+	struct dlopen_base_data *data = arg;
+
+	if (!strstr(simple_basename(info->dlpi_name), data->libname))
+		return 0;
+
+	data->base_addr = info->dlpi_addr;
+	data->libname = info->dlpi_name; /* update to use full path */
+	return 0;
+}
+
+__visible_default void * dlopen(const char *filename, int flags)
+{
+	struct mcount_thread_data *mtdp;
+	uint64_t timestamp = mcount_gettime();
+	void *ret = real_dlopen(filename, flags);
+	struct dlopen_base_data data = {
+		.libname = simple_basename(filename),
+	};
+
+	if (unlikely(mcount_should_stop()))
+		return ret;
+
+	mtdp = get_thread_data();
+	if (unlikely(check_thread_data(mtdp))) {
+		mcount_prepare();
+
+		mtdp = get_thread_data();
+		assert(mtdp);
+	}
+
+	dl_iterate_phdr(dlopen_base_callback, &data);
+
+	/*
+	 * get timestamp before calling dlopen() so that
+	 * it can have symbols in static initializers which
+	 * called during the dlopen.
+	 */
+	send_dlopen_msg(mtdp, session_name(), timestamp,
+			data.base_addr, data.libname);
+
+	return ret;
+}
+
+/*
  * external interfaces
  */
 void __visible_default __monstartup(unsigned long low, unsigned long high)
@@ -816,11 +915,14 @@ void __visible_default __monstartup(unsigned long low, unsigned long high)
 out:
 	pthread_atfork(atfork_prepare_handler, NULL, atfork_child_handler);
 
+	real_dlopen = dlsym(RTLD_NEXT, "dlopen");
+
 #ifndef DISABLE_MCOUNT_FILTER
 	ftrace_cleanup_filter_module(&modules);
 #endif /* DISABLE_MCOUNT_FILTER */
 
 	compiler_barrier();
+	pr_dbg("mcount setup done\n");
 
 	mcount_setup_done = true;
 	mtd.recursion_guard = false;
