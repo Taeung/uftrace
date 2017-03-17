@@ -258,3 +258,31 @@ bool check_time_range(struct uftrace_time_range *range, uint64_t timestamp)
 
 	return true;
 }
+
+char *ltrim(char *s)
+{
+	int len = strlen(s);
+
+	while (len && isspace(*s)) {
+		len--;
+		s++;
+	}
+
+	return s;
+}
+
+char *rtrim(char *s)
+{
+	size_t size = strlen(s);
+	char *end;
+
+	if (!size)
+		return s;
+
+	end = s + size - 1;
+	while (end >= s && isspace(*end))
+		end--;
+	*(end + 1) = '\0';
+
+	return s;
+}

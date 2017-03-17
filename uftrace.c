@@ -142,6 +142,7 @@ static struct argp_option ftrace_options[] = {
 	{ "sample-time", OPT_sample_time, "TIME", 0, "Show flame graph with this sampliing time" },
 	{ "output-fields", 'f', "FIELD", 0, "Show FIELDs in the replay output" },
 	{ "time-range", 'r', "TIME~TIME", 0, "Show output within the TIME(timestamp or elapsed time) range only" },
+	{ "option-file", 'o', "FILE", 0, "Use options in the file" },
 	{ 0 }
 };
 
@@ -528,6 +529,12 @@ static error_t parse_option(int key, char *arg, struct argp_state *state)
 			opts->threshold = 0;
 		}
 		break;
+	case 'o':
+		if (access(arg, R_OK) == 0)
+			opts->optfile = arg;
+		else
+			pr_use("can't read the option file: %s\n", arg);
+		break;
 
 	case OPT_flat:
 		opts->flat = true;
@@ -763,6 +770,8 @@ static error_t parse_option(int key, char *arg, struct argp_state *state)
 
 	case ARGP_KEY_NO_ARGS:
 	case ARGP_KEY_END:
+		if (opts->optfile)
+			break;
 		if (state->arg_num < 1)
 			argp_usage(state);
 
@@ -785,6 +794,65 @@ static error_t parse_option(int key, char *arg, struct argp_state *state)
 	return 0;
 }
 
+static void free_options(int nr_options, char **options)
+{
+	int i;
+
+	if (options == NULL)
+		return;
+
+	for(i = 0; i < nr_options; i++)
+		free(options[i]);
+	free(options);
+}
+
+static int parse_option_file (int *nr_options, char ***options, char *filename)
+{
+	int ret = -1, nr_opts = 0;
+	char *opt = NULL, **opts;
+	size_t len;
+	FILE *file = fopen(filename, "r");
+
+	if (!file)
+		return -1;
+
+	opts = malloc(sizeof(char **));
+	/* For argp_parse() first argument is null instead of executable name */
+	opts[nr_opts++] = NULL;
+	while (getline(&opt, &len, file) > 0) {
+		int i;
+		char *ptr, *o[2], **tmp;
+
+		ptr = rtrim(ltrim(opt));
+		if (*ptr == '\0')
+			continue;
+
+		o[0] = strsep(&ptr, " ");
+		o[1] = ptr;
+
+		for (i = 0; i < 2; i++) {
+			if (o[i] == NULL)
+				break;
+
+			tmp = realloc(opts, sizeof(char **) * (nr_opts + 1));
+			if (!tmp) {
+				free_options(nr_opts, opts);
+				goto out_err;
+			}
+			opts = tmp;
+			opts[nr_opts++] = strdup(ltrim(o[i]));
+		}
+	}
+
+	ret = 0;
+	*nr_options = nr_opts;
+	*options = opts;
+out_err:
+	free(opt);
+	fclose(file);
+	return ret;
+}
+
 #ifndef UNIT_TEST
 int main(int argc, char *argv[])
 {
@@ -802,6 +870,7 @@ int main(int argc, char *argv[])
 		.comment	= true,
 		.kernel_skip_out= true,
 		.fields         = OPT_FIELD_DEFAULT,
+		.optfile	= NULL,
 	};
 	struct argp argp = {
 		.options = ftrace_options,
@@ -816,6 +885,18 @@ int main(int argc, char *argv[])
 	outfp = stdout;
 
 	argp_parse(&argp, argc, argv, ARGP_IN_ORDER, NULL, &opts);
+
+	if (opts.optfile) {
+		int nr_options = 0;
+		char **options = NULL;
+
+		if (parse_option_file(&nr_options, &options, opts.optfile) < 0)
+			pr_err_ns("cannot parse the option file: %s\n", opts.optfile);
+		else {
+			argp_parse(&argp, nr_options, options, ARGP_IN_ORDER, NULL, &opts);
+			free_options(nr_options, options);
+		}
+	}
 
 	if (dbg_domain_set && !debug)
 		debug = 1;

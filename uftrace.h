@@ -154,6 +154,7 @@ struct opts {
 	char *retval;
 	char *diff;
 	char *fields;
+	char *optfile;
 	int mode;
 	int idx;
 	int depth;
