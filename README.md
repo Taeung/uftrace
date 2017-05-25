@@ -1,5 +1,6 @@
 [![Build Status](https://travis-ci.org/namhyung/uftrace.svg?branch=master)](https://travis-ci.org/namhyung/uftrace)
 [![Coverity scan](https://scan.coverity.com/projects/12421/badge.svg)](https://scan.coverity.com/projects/namhyung-uftrace)
+[![Join chat](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/uftrace/uftrace)
 
 uftrace
 =======
